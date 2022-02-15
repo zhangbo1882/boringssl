@@ -56,6 +56,7 @@
  * [including the GNU Public Licence.] */
 
 #include <openssl/bio.h>
+#include <sys/socket.h>
 
 #if !defined(OPENSSL_TRUSTY)
 
@@ -76,9 +77,7 @@ OPENSSL_MSVC_PRAGMA(comment(lib, "Ws2_32.lib"))
 
 
 #if !defined(OPENSSL_WINDOWS)
-static int closesocket(int sock) {
-  return close(sock);
-}
+static int closesocket(int sock) { return close(sock); }
 #endif
 
 static int sock_new(BIO *bio) {
@@ -126,6 +125,30 @@ static int sock_read(BIO *b, char *out, int outl) {
   return ret;
 }
 
+static int sendmsg_mark(int socket, const void *in, size_t len, int mark) {
+  struct msghdr msg;
+  struct iovec io = {.iov_base = (void *)in, .iov_len = len};
+  union { /* Ancillary data buffer, wrapped in a union
+                      in order to ensure it is suitably aligned */
+    char buf[CMSG_SPACE(sizeof(mark))];
+    struct cmsghdr align;
+  } u;
+
+  msg.msg_iov = &io;
+  msg.msg_iovlen = 1;
+  msg.msg_flags = 0;
+
+  msg.msg_control = u.buf;
+  msg.msg_controllen = sizeof(u.buf);
+  struct cmsghdr *cmsg = CMSG_FIRSTHDR(&msg);
+  cmsg->cmsg_level = SOL_SOCKET;
+  cmsg->cmsg_type = 36;  // SO_MARK
+  cmsg->cmsg_len = CMSG_LEN(sizeof(int));
+  memcpy(CMSG_DATA(cmsg), &mark, sizeof(mark));
+
+  return sendmsg(socket, &msg, 0);
+}
+
 static int sock_write(BIO *b, const char *in, int inl) {
   int ret;
 
@@ -133,7 +156,12 @@ static int sock_write(BIO *b, const char *in, int inl) {
 #if defined(OPENSSL_WINDOWS)
   ret = send(b->num, in, inl, 0);
 #else
-  ret = write(b->num, in, inl);
+  void *data = BIO_get_data(b);
+  if (data != NULL) {
+    ret = sendmsg_mark(b->num, in, inl, *(int *)data);
+  } else {
+    ret = write(b->num, in, inl);
+  }
 #endif
   BIO_clear_retry_flags(b);
   if (ret <= 0) {

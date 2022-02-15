@@ -259,6 +259,10 @@ static_assert(DTLS1_RT_HEADER_LENGTH + SSL3_RT_SEND_MAX_ENCRYPTED_OVERHEAD +
 static int tls_write_buffer_flush(SSL *ssl) {
   SSLBuffer *buf = &ssl->s3->write_buffer;
 
+  void *data = SSL_get_app_data(ssl);
+  if (data != nullptr) {
+    BIO_set_data(ssl->wbio.get(), data);
+  }
   while (!buf->empty()) {
     int ret = BIO_write(ssl->wbio.get(), buf->data(), buf->size());
     if (ret <= 0) {
