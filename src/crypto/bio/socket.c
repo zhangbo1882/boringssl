@@ -158,8 +158,8 @@ static int sock_write(BIO *b, const char *in, int inl) {
 #else
   void *data = BIO_get_data(b);
   if (data != NULL) {
-    printf("BoringSSL: mark:%d\n", *(int *)data);
-    ret = sendmsg_mark(b->num, in, inl, *(int *)data);
+    // ret = sendmsg_mark(b->num, in, inl, *(int *)data);
+    ret = write(b->num, in, inl);
   } else {
     ret = write(b->num, in, inl);
   }
